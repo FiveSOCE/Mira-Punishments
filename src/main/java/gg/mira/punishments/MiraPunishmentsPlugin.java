@@ -3,6 +3,7 @@ package gg.mira.punishments;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -22,6 +23,7 @@ import java.time.Duration;
 import java.util.*;
 
 public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener {
+    private static final String PREFIX = "&5&lMira &8>> &r";
     private PunishmentService service;
 
     @Override
@@ -40,9 +42,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Punishment active = service.active(event.getPlayer().getUniqueId(), PunishmentType.BAN);
-        if (active != null) {
-            event.getPlayer().kick(Component.text("You are banned: " + active.reason() + service.untilSuffix(active)));
-        }
+        if (active != null) event.getPlayer().kick(Component.text("You are banned: " + active.reason() + service.untilSuffix(active)));
     }
 
     @EventHandler
@@ -50,7 +50,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
         Punishment active = service.active(event.getPlayer().getUniqueId(), PunishmentType.MUTE);
         if (active != null) {
             event.setCancelled(true);
-            event.getPlayer().sendMessage(Component.text("You are muted: " + active.reason() + service.untilSuffix(active)));
+            msg(event.getPlayer(), "&cYou are muted: &f" + active.reason() + service.untilSuffix(active));
         }
     }
 
@@ -68,40 +68,37 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
     }
 
     private boolean punish(CommandSender sender, String[] args) {
-        if (args.length == 0) {
-            sender.sendMessage("§6MiraPunishments §7/punish <history|note|reload> ...");
-            return true;
-        }
+        if (args.length == 0) { msg(sender, "&6MiraPunishments &7/punish <history|note|reload> ..."); return true; }
         if (args[0].equalsIgnoreCase("history")) return history(sender, Arrays.copyOfRange(args, 1, args.length));
         if (args[0].equalsIgnoreCase("note")) {
-            if (args.length < 3) { sender.sendMessage("§cUsage: /punish note <player> <note>"); return true; }
+            if (args.length < 3) { msg(sender, "&cUsage: /punish note <player> <note>"); return true; }
             OfflinePlayer target = Bukkit.getOfflinePlayer(args[1]);
             String note = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
             service.add(target.getUniqueId(), target.getName(), PunishmentType.NOTE, sender.getName(), note, 0L);
-            sender.sendMessage("§aStaff note added.");
+            msg(sender, "&aStaff note added.");
             return true;
         }
         if (args[0].equalsIgnoreCase("reload")) {
             service.reload();
-            sender.sendMessage("§aMiraPunishments reloaded.");
+            msg(sender, "&aMiraPunishments reloaded.");
             return true;
         }
-        sender.sendMessage("§cUnknown subcommand.");
+        msg(sender, "&cUnknown subcommand.");
         return true;
     }
 
     private boolean issue(CommandSender sender, String[] args, PunishmentType type) {
         if (args.length < 2) {
-            sender.sendMessage("§cUsage: /" + type.name().toLowerCase(Locale.ROOT) + " <player> " + (type == PunishmentType.WARN ? "<reason>" : "<duration|perm> <reason>"));
+            msg(sender, "&cUsage: /" + type.name().toLowerCase(Locale.ROOT) + " <player> " + (type == PunishmentType.WARN ? "<reason>" : "<duration|perm> <reason>"));
             return true;
         }
         OfflinePlayer target = Bukkit.getOfflinePlayer(args[0]);
         int reasonStart = 1;
         long expiresAt = 0L;
         if (type == PunishmentType.BAN || type == PunishmentType.MUTE) {
-            if (args.length < 3) { sender.sendMessage("§cDuration and reason are required."); return true; }
+            if (args.length < 3) { msg(sender, "&cDuration and reason are required."); return true; }
             long duration = service.parseDuration(args[1]);
-            if (duration == Long.MIN_VALUE) { sender.sendMessage("§cInvalid duration. Examples: 30m, 12h, 7d, perm"); return true; }
+            if (duration == Long.MIN_VALUE) { msg(sender, "&cInvalid duration. Examples: 30m, 12h, 7d, perm"); return true; }
             expiresAt = duration <= 0 ? 0L : System.currentTimeMillis() + duration;
             reasonStart = 2;
         }
@@ -110,38 +107,39 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
         Player online = target.getPlayer();
         if (online != null) {
             if (type == PunishmentType.BAN) online.kick(Component.text("You are banned: " + reason + service.untilSuffix(punishment)));
-            else if (type == PunishmentType.WARN) online.sendMessage(Component.text("Warning: " + reason));
-            else if (type == PunishmentType.MUTE) online.sendMessage(Component.text("You have been muted: " + reason + service.untilSuffix(punishment)));
+            else if (type == PunishmentType.WARN) msg(online, "&eWarning: &f" + reason);
+            else if (type == PunishmentType.MUTE) msg(online, "&cYou have been muted: &f" + reason + service.untilSuffix(punishment));
         }
-        sender.sendMessage("§a" + type + " recorded for " + (target.getName() == null ? target.getUniqueId() : target.getName()) + ".");
+        msg(sender, "&a" + type + " recorded for " + (target.getName() == null ? target.getUniqueId() : target.getName()) + ".");
         return true;
     }
 
     private boolean revoke(CommandSender sender, String[] args, PunishmentType type) {
-        if (args.length < 1) { sender.sendMessage("§cPlayer required."); return true; }
+        if (args.length < 1) { msg(sender, "&cPlayer required."); return true; }
         OfflinePlayer target = Bukkit.getOfflinePlayer(args[0]);
         int count = service.revoke(target.getUniqueId(), type, sender.getName());
-        sender.sendMessage("§aRevoked " + count + " active " + type.name().toLowerCase(Locale.ROOT) + " punishment(s).");
+        msg(sender, "&aRevoked " + count + " active " + type.name().toLowerCase(Locale.ROOT) + " punishment(s).");
         return true;
     }
 
     private boolean history(CommandSender sender, String[] args) {
-        if (args.length < 1) { sender.sendMessage("§cUsage: /history <player> [page]"); return true; }
+        if (args.length < 1) { msg(sender, "&cUsage: /history <player> [page]"); return true; }
         OfflinePlayer target = Bukkit.getOfflinePlayer(args[0]);
         int page = args.length >= 2 ? parseInt(args[1], 1) : 1;
         List<Punishment> entries = service.history(target.getUniqueId());
         int pages = Math.max(1, (entries.size() + 7) / 8);
         page = Math.max(1, Math.min(page, pages));
-        sender.sendMessage("§6Punishment History §7- §f" + args[0] + " §8(" + page + "/" + pages + ")");
+        msg(sender, "&6Punishment History &7- &f" + args[0] + " &8(" + page + "/" + pages + ")");
         int from = (page - 1) * 8;
         for (int i = from; i < Math.min(entries.size(), from + 8); i++) {
             Punishment p = entries.get(i);
-            sender.sendMessage("§7" + Instant.ofEpochMilli(p.createdAt()) + " §f" + p.type() + " §7by §f" + p.staff() + " §8- §f" + p.reason() + (p.revoked() ? " §c[REVOKED]" : ""));
+            msg(sender, "&7" + Instant.ofEpochMilli(p.createdAt()) + " &f" + p.type() + " &7by &f" + p.staff() + " &8- &f" + p.reason() + (p.revoked() ? " &c[REVOKED]" : ""));
         }
-        if (entries.isEmpty()) sender.sendMessage("§7No history.");
+        if (entries.isEmpty()) msg(sender, "&7No history.");
         return true;
     }
 
+    private void msg(CommandSender sender, String raw) { sender.sendMessage(ChatColor.translateAlternateColorCodes('&', PREFIX + raw)); }
     private int parseInt(String s, int fallback) { try { return Integer.parseInt(s); } catch (NumberFormatException ex) { return fallback; } }
 
     public interface PunishmentApi {
