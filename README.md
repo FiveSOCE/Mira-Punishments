@@ -1,39 +1,40 @@
 # MiraPunishments
 
-Moderation punishment history and enforcement for Paper 1.21.11 / Java 21.
+MiraPunishments is the moderation punishment and history system for the Mira Paper server suite. It provides persistent bans, mutes, warnings, staff notes, temporary durations and a searchable punishment record for staff.
 
-## Current release
+## Download
 
-**v0.1.0**
+[**Download MiraPunishments v0.1.0**](https://github.com/FiveSOCE/Mira-Punishments/releases/download/v0.1.0/MiraPunishments-0.1.0.jar)
 
-Direct download:
-https://github.com/FiveSOCE/Mira-Punishments/releases/download/v0.1.0/MiraPunishments-0.1.0.jar
+## Requirements / Dependencies
 
-All releases:
-https://github.com/FiveSOCE/Mira-Punishments/releases
+- Paper 1.21.11
+- Java 21
 
-## Features
+## How MiraPunishments Works
 
-- Persistent bans and mutes
-- Warnings
-- Staff notes
-- Temporary durations (`30m`, `12h`, `7d`, etc.) and permanent punishments
-- Revoke/unban/unmute history
-- Paginated punishment history
-- Public Bukkit ServicesManager API
+Staff actions are stored as persistent punishment records rather than being treated as disposable command results. Bans and mutes can be temporary using durations such as `30m`, `12h` or `7d`, or permanent with `perm`. Warnings and staff notes are also written into the player's moderation history. Revoking a ban or mute preserves the historical record so staff can still see what happened previously.
+
+The plugin enforces active bans and mutes and exposes punishment information through a public Bukkit ServicesManager API for other Mira moderation systems.
 
 ## Commands
 
-- `/miraban <player> <duration|perm> <reason>`
-- `/miraunban <player>`
-- `/mute <player> <duration|perm> <reason>`
-- `/unmute <player>`
-- `/warn <player> <reason>`
-- `/history <player> [page]`
-- `/punish note <player> <note>`
+| Command | Permission | What it does |
+| --- | --- | --- |
+| `/miraban <player> <duration|perm> <reason>` | `mirapunishments.ban` | Bans a player temporarily or permanently and records the punishment. |
+| `/miraunban <player>` | `mirapunishments.ban` | Revokes an active MiraPunishments ban while preserving history. |
+| `/mute <player> <duration|perm> <reason>` | `mirapunishments.mute` | Mutes a player temporarily or permanently. |
+| `/unmute <player>` | `mirapunishments.mute` | Removes an active mute. |
+| `/warn <player> <reason>` | `mirapunishments.warn` | Adds a warning to a player's moderation history. |
+| `/history <player> [page]` | `mirapunishments.staff` | Views paginated punishment history for a player. |
+| `/punish note <player> <note>` | `mirapunishments.staff` | Adds a staff note to a player's history. |
+| `/punish ...` | `mirapunishments.staff` | Accesses the general punishment administration command surface. |
 
-## Build
+## Permissions
 
-`./gradlew build`
-
-Output: `build/libs/MiraPunishments-0.1.0.jar`
+| Permission | Default | What it does |
+| --- | --- | --- |
+| `mirapunishments.staff` | OP | Allows general punishment administration, history and staff notes. |
+| `mirapunishments.warn` | OP | Allows warning players. |
+| `mirapunishments.mute` | OP | Allows muting and unmuting players. |
+| `mirapunishments.ban` | OP | Allows banning and unbanning players. |
