@@ -1,0 +1,30 @@
+name: Release v0.1.0
+on:
+  push:
+    paths:
+      - '.github/workflows/release-v0.1.0.yml'
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tested source
+        uses: actions/checkout@v4
+        with:
+          ref: 32e00e3bcdc88c44605fac745467bb50d81ff08a
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build
+        run: gradle build
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0
+          name: MiraPunishments v0.1.0
+          target_commitish: 32e00e3bcdc88c44605fac745467bb50d81ff08a
+          body: Initial MiraPunishments release with bans, mutes, warnings, staff notes, duration parsing, persistent history and public API.
+          files: build/libs/MiraPunishments-0.1.0.jar
