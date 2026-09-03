@@ -1,0 +1,36 @@
+name: MiraPunishments
+version: 0.1.0
+main: gg.mira.punishments.MiraPunishmentsPlugin
+api-version: '1.21'
+author: FiveSOCE
+commands:
+  punish:
+    description: Punishment administration
+    permission: mirapunishments.staff
+  history:
+    description: View a player's punishment history
+    permission: mirapunishments.staff
+  warn:
+    description: Warn a player
+    permission: mirapunishments.warn
+  mute:
+    description: Mute a player
+    permission: mirapunishments.mute
+  unmute:
+    description: Unmute a player
+    permission: mirapunishments.mute
+  miraban:
+    description: Ban a player through MiraPunishments
+    permission: mirapunishments.ban
+  miraunban:
+    description: Unban a player through MiraPunishments
+    permission: mirapunishments.ban
+permissions:
+  mirapunishments.staff:
+    default: op
+  mirapunishments.warn:
+    default: op
+  mirapunishments.mute:
+    default: op
+  mirapunishments.ban:
+    default: op
