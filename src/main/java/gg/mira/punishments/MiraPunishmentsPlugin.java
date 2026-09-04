@@ -13,6 +13,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabExecutor;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -21,6 +22,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
@@ -28,7 +30,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 
-public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener {
+public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener, TabExecutor {
     private MiraCore core;
     private PunishmentService service;
 
@@ -45,6 +47,13 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
                 "Persistent cases, active enforcement, expiry lifecycle and audit integration ready");
 
         getServer().getPluginManager().registerEvents(this, this);
+        for (String commandName : List.of("punish", "history", "warn", "mute", "unmute", "miraban", "miraunban", "mirakick")) {
+            var pluginCommand = getCommand(commandName);
+            if (pluginCommand != null) {
+                pluginCommand.setExecutor(this);
+                pluginCommand.setTabCompleter(this);
+            }
+        }
 
         long expiryTicks = Math.max(5L, getConfig().getLong("expiry.scan-seconds", 30L)) * 20L;
         Bukkit.getScheduler().runTaskTimer(this, this::scanExpiries, 20L, expiryTicks);
@@ -65,7 +74,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
-        Punishment active = service.active(event.getPlayer().getUniqueId(), PunishmentType.BAN);
+        Punishment active = service.active(event.getPlayer().getUniqueId(), PunishmentType.BAN).orElse(null);
         if (active != null) {
             event.getPlayer().kick(Component.text("You are banned: " + active.reason() + service.untilSuffix(active)));
         }
@@ -73,14 +82,15 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
 
     @EventHandler
     public void onChat(AsyncChatEvent event) {
-        Punishment active = service.active(event.getPlayer().getUniqueId(), PunishmentType.MUTE);
+        Punishment active = service.active(event.getPlayer().getUniqueId(), PunishmentType.MUTE).orElse(null);
         if (active == null) return;
         event.setCancelled(true);
         msg(event.getPlayer(), "&cYou are muted: &f" + active.reason() + service.untilSuffix(active));
     }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command,
+                             @NotNull String label, @NotNull String[] args) {
         return switch (command.getName().toLowerCase(Locale.ROOT)) {
             case "history" -> history(sender, args);
             case "warn" -> issue(sender, args, PunishmentType.WARN);
@@ -95,7 +105,8 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
     }
 
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+    public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command,
+                                      @NotNull String alias, @NotNull String[] args) {
         String name = command.getName().toLowerCase(Locale.ROOT);
         if (name.equals("punish")) {
             if (args.length == 1) return complete(args[0], List.of("history", "case", "active", "note", "reload"));
@@ -104,8 +115,11 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
             }
             return List.of();
         }
-        if (args.length == 1 && !Set.of("miraunban").contains(name)) {
+        if (args.length == 1 && Set.of("history", "warn", "mute", "unmute", "miraban", "miraunban", "mirakick").contains(name)) {
             return complete(args[0], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
+        }
+        if (args.length == 2 && Set.of("mute", "miraban").contains(name)) {
+            return complete(args[1], List.of("30m", "1h", "12h", "1d", "7d", "30d", "perm"));
         }
         return List.of();
     }
@@ -115,7 +129,6 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
             punishHelp(sender);
             return true;
         }
-
         return switch (args[0].toLowerCase(Locale.ROOT)) {
             case "history" -> history(sender, Arrays.copyOfRange(args, 1, args.length));
             case "case" -> showCase(sender, args);
@@ -124,6 +137,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
             case "reload" -> {
                 service.reload();
                 scanExpiries();
+                audit(sender, "PUNISHMENTS_RELOADED", "MiraPunishments", Map.of());
                 msg(sender, "&aMiraPunishments reloaded.");
                 yield true;
             }
@@ -136,7 +150,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
 
     private boolean showCase(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            msg(sender, "&cUsage: /punish case <case-id>");
+            msg(sender, "&eUsage: /punish case <case-id>");
             return true;
         }
         Punishment punishment = service.caseById(args[1]).orElse(null);
@@ -144,7 +158,6 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
             msg(sender, "&cCase not found.");
             return true;
         }
-
         msg(sender, "&6Case &f" + punishment.id());
         msg(sender, "&7Player: &f" + punishment.playerName() + " &8(" + punishment.player() + ")");
         msg(sender, "&7Type: &f" + punishment.type() + " &7Status: " + statusColour(punishment));
@@ -152,8 +165,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
         msg(sender, "&7Created: &f" + Instant.ofEpochMilli(punishment.createdAt()));
         msg(sender, "&7Expires: &f" + (punishment.expiresAt() <= 0 ? "Never" : Instant.ofEpochMilli(punishment.expiresAt())));
         if (punishment.revoked()) {
-            msg(sender, "&7Revoked by: &f" + punishment.revokedBy()
-                    + " &7at &f" + Instant.ofEpochMilli(punishment.revokedAt()));
+            msg(sender, "&7Revoked by: &f" + punishment.revokedBy() + " &7at &f" + Instant.ofEpochMilli(punishment.revokedAt()));
         }
         msg(sender, "&7Reason: &f" + punishment.reason());
         return true;
@@ -161,7 +173,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
 
     private boolean showActive(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            msg(sender, "&cUsage: /punish active <player>");
+            msg(sender, "&eUsage: /punish active <player>");
             return true;
         }
         OfflinePlayer target = resolve(args[1]);
@@ -184,7 +196,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
 
     private boolean note(CommandSender sender, String[] args) {
         if (args.length < 3) {
-            msg(sender, "&cUsage: /punish note <player> <note>");
+            msg(sender, "&eUsage: /punish note <player> <note>");
             return true;
         }
         OfflinePlayer target = resolve(args[1]);
@@ -205,9 +217,10 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
     }
 
     private boolean issue(CommandSender sender, String[] args, PunishmentType type) {
-        if (args.length < 2) {
-            msg(sender, "&cUsage: /" + commandName(type) + " <player> "
-                    + (type == PunishmentType.WARN ? "<reason>" : "<duration|perm> <reason>"));
+        int minimum = (type == PunishmentType.BAN || type == PunishmentType.MUTE) ? 3 : 2;
+        if (args.length < minimum) {
+            String duration = (type == PunishmentType.BAN || type == PunishmentType.MUTE) ? " <duration|perm>" : "";
+            msg(sender, "&eUsage: /" + commandName(type) + " <player>" + duration + " <reason>");
             return true;
         }
 
@@ -220,13 +233,9 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
         int reasonStart = 1;
         long expiresAt = 0L;
         if (type == PunishmentType.BAN || type == PunishmentType.MUTE) {
-            if (args.length < 3) {
-                msg(sender, "&cDuration and reason are required.");
-                return true;
-            }
             long duration = service.parseDuration(args[1]);
             if (duration == Long.MIN_VALUE) {
-                msg(sender, "&cInvalid duration. Examples: 30m, 12h, 7d, perm");
+                msg(sender, "&cInvalid duration. Examples: 30m, 12h, 7d, 2w, perm");
                 return true;
             }
             expiresAt = duration <= 0 ? 0L : safeExpiry(duration);
@@ -247,7 +256,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
         if (online != null) {
             switch (type) {
                 case BAN -> online.kick(Component.text("You are banned: " + reason + service.untilSuffix(punishment)));
-                case WARN -> msg(online, "&eWarning: &f" + reason);
+                case WARN -> msg(online, "&eWarning: &f" + reason + " &8[Case " + punishment.id() + "]");
                 case MUTE -> msg(online, "&cYou have been muted: &f" + reason + service.untilSuffix(punishment));
                 default -> { }
             }
@@ -260,7 +269,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
 
     private boolean kick(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            msg(sender, "&cUsage: /mirakick <player> <reason>");
+            msg(sender, "&eUsage: /mirakick <player> <reason>");
             return true;
         }
         Player target = Bukkit.getPlayerExact(args[0]);
@@ -273,7 +282,6 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
             msg(sender, "&cReason cannot be blank.");
             return true;
         }
-
         Punishment punishment = service.add(target.getUniqueId(), target.getName(), PunishmentType.KICK,
                 sender.getName(), reason, 0L);
         issued(sender, punishment);
@@ -284,7 +292,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
 
     private boolean revoke(CommandSender sender, String[] args, PunishmentType type) {
         if (args.length < 1) {
-            msg(sender, "&cPlayer required.");
+            msg(sender, "&ePlayer required.");
             return true;
         }
         OfflinePlayer target = resolve(args[0]);
@@ -292,24 +300,19 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
             msg(sender, "&cPlayer not found.");
             return true;
         }
-
         List<Punishment> revoked = service.revoke(target.getUniqueId(), type, sender.getName());
         for (Punishment punishment : revoked) {
             Bukkit.getPluginManager().callEvent(new PunishmentRevokedEvent(punishment));
-            core.audit().record("MiraPunishments", "PUNISHMENT_REVOKED",
-                    sender instanceof Player player ? player.getUniqueId() : null,
-                    sender.getName(), punishment.id(), "Revoked punishment",
+            audit(sender, "PUNISHMENT_REVOKED", punishment.id(),
                     Map.of("player", punishment.player().toString(), "type", punishment.type().name()));
         }
-
-        msg(sender, "&aRevoked &f" + revoked.size() + " &aactive "
-                + type.name().toLowerCase(Locale.ROOT) + " punishment(s).");
+        msg(sender, "&aRevoked &f" + revoked.size() + " &aactive " + type.name().toLowerCase(Locale.ROOT) + " punishment(s).");
         return true;
     }
 
     private boolean history(CommandSender sender, String[] args) {
         if (args.length < 1) {
-            msg(sender, "&cUsage: /history <player> [page]");
+            msg(sender, "&eUsage: /history <player> [page]");
             return true;
         }
         OfflinePlayer target = resolve(args[0]);
@@ -317,7 +320,6 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
             msg(sender, "&cPlayer not found.");
             return true;
         }
-
         int requestedPage = args.length >= 2 ? parseInt(args[1], 1) : 1;
         List<Punishment> entries = service.history(target.getUniqueId());
         int pageSize = Math.max(1, Math.min(20, getConfig().getInt("history.page-size", 8)));
@@ -328,8 +330,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
         for (Punishment punishment : page.values()) {
             msg(sender, "&7" + Instant.ofEpochMilli(punishment.createdAt())
                     + " &f" + punishment.id() + " &8| &f" + punishment.type()
-                    + " &8| " + statusColour(punishment)
-                    + " &8| &f" + punishment.reason());
+                    + " &8| " + statusColour(punishment) + " &8| &f" + punishment.reason());
         }
         if (entries.isEmpty()) msg(sender, "&7No history.");
         return true;
@@ -337,11 +338,8 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
 
     private void issued(CommandSender sender, Punishment punishment) {
         Bukkit.getPluginManager().callEvent(new PunishmentIssuedEvent(punishment));
-        core.audit().record("MiraPunishments", "PUNISHMENT_ISSUED",
-                sender instanceof Player player ? player.getUniqueId() : null,
-                sender.getName(), punishment.id(), "Issued punishment",
-                Map.of("player", punishment.player().toString(),
-                        "type", punishment.type().name(),
+        audit(sender, "PUNISHMENT_ISSUED", punishment.id(),
+                Map.of("player", punishment.player().toString(), "type", punishment.type().name(),
                         "expiresAt", Long.toString(punishment.expiresAt())));
     }
 
@@ -357,46 +355,40 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
     }
 
     private long safeExpiry(long duration) {
-        try {
-            return Math.addExact(System.currentTimeMillis(), duration);
-        } catch (ArithmeticException exception) {
-            return Long.MAX_VALUE;
-        }
+        try { return Math.addExact(System.currentTimeMillis(), duration); }
+        catch (ArithmeticException ex) { return Long.MAX_VALUE; }
     }
 
     private String statusColour(Punishment punishment) {
         if (punishment.revoked()) return "&cREVOKED";
-        if (service.isExpired(punishment)) return "&8EXPIRED";
-        if (punishment.type() == PunishmentType.BAN || punishment.type() == PunishmentType.MUTE) return "&aACTIVE";
-        return "&7RECORDED";
-    }
-
-    private String commandName(PunishmentType type) {
-        return switch (type) {
-            case BAN -> "miraban";
-            case MUTE -> "mute";
-            case WARN -> "warn";
-            default -> type.name().toLowerCase(Locale.ROOT);
-        };
+        if (service.isActive(punishment)) return "&aACTIVE";
+        return "&7EXPIRED";
     }
 
     private OfflinePlayer resolve(String raw) {
-        OfflinePlayer player = Bukkit.getOfflinePlayer(raw);
-        if (player.getName() == null && !player.hasPlayedBefore() && !player.isOnline()) return null;
-        return player;
+        if (raw == null || raw.isBlank()) return null;
+        try { return Bukkit.getOfflinePlayer(UUID.fromString(raw)); }
+        catch (IllegalArgumentException ignored) {
+            OfflinePlayer player = Bukkit.getOfflinePlayer(raw);
+            return player.getName() != null || player.hasPlayedBefore() || player.isOnline() ? player : null;
+        }
     }
 
     private String displayName(OfflinePlayer player) {
         return player.getName() == null ? player.getUniqueId().toString() : player.getName();
     }
 
+    private String commandName(PunishmentType type) {
+        return type == PunishmentType.BAN ? "miraban" : type.name().toLowerCase(Locale.ROOT);
+    }
+
     private void punishHelp(CommandSender sender) {
-        msg(sender, "&6MiraPunishments");
-        msg(sender, "&7/punish history <player> [page]");
-        msg(sender, "&7/punish case <case-id>");
-        msg(sender, "&7/punish active <player>");
-        msg(sender, "&7/punish note <player> <note>");
-        msg(sender, "&7/punish reload");
+        msg(sender, "&6MiraPunishments &7/punish <history|case|active|note|reload> ...");
+    }
+
+    private void audit(CommandSender sender, String action, String target, Map<String, String> metadata) {
+        UUID actor = sender instanceof Player player ? player.getUniqueId() : null;
+        core.audit().record("MiraPunishments", action, actor, sender.getName(), target, action, metadata);
     }
 
     private void msg(CommandSender sender, String raw) {
@@ -421,17 +413,14 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
         List<Punishment> active(UUID player);
         Optional<Punishment> active(UUID player, PunishmentType type);
         Optional<Punishment> caseById(String id);
+        List<Punishment> recent(int limit);
         long caseCount();
     }
 
     public enum PunishmentType { BAN, MUTE, WARN, KICK, NOTE }
 
-    /**
-     * Record shape intentionally remains compatible with v0.1.0.
-     * Expiry-notification state is persisted separately from the public record.
-     */
     public record Punishment(String id, UUID player, String playerName, PunishmentType type, String staff, String reason,
-                             long createdAt, long expiresAt, boolean revoked, String revokedBy, long revokedAt) {}
+                             long createdAt, long expiresAt, boolean revoked, String revokedBy, long revokedAt) { }
 
     public static final class PunishmentService implements PunishmentApi {
         private final MiraPunishmentsPlugin plugin;
@@ -451,15 +440,13 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
             data = YamlConfiguration.loadConfiguration(file);
             records.clear();
             expiryRecorded.clear();
-
             ConfigurationSection root = data.getConfigurationSection("records");
             if (root == null) return;
 
             for (String uuidText : root.getKeys(false)) {
                 UUID uuid;
                 try { uuid = UUID.fromString(uuidText); }
-                catch (IllegalArgumentException exception) { continue; }
-
+                catch (IllegalArgumentException ex) { continue; }
                 List<Punishment> list = new ArrayList<>();
                 ConfigurationSection user = root.getConfigurationSection(uuidText);
                 if (user == null) continue;
@@ -472,28 +459,24 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
                                 PunishmentType.valueOf(user.getString(base + "type", "NOTE")),
                                 user.getString(base + "staff", "CONSOLE"),
                                 user.getString(base + "reason", "No reason"),
-                                user.getLong(base + "created-at"),
-                                user.getLong(base + "expires-at"),
-                                user.getBoolean(base + "revoked"),
-                                user.getString(base + "revoked-by", ""),
+                                user.getLong(base + "created-at"), user.getLong(base + "expires-at"),
+                                user.getBoolean(base + "revoked"), user.getString(base + "revoked-by", ""),
                                 user.getLong(base + "revoked-at"));
                         list.add(punishment);
                         if (user.getBoolean(base + "expiry-recorded", false)) expiryRecorded.add(id);
-                    } catch (RuntimeException ignored) {
-                    }
+                    } catch (RuntimeException ignored) { }
                 }
                 list.sort(Comparator.comparingLong(Punishment::createdAt).reversed());
                 records.put(uuid, list);
             }
         }
 
-        synchronized Punishment add(UUID uuid, String name, PunishmentType type,
-                                    String staff, String reason, long expiresAt) {
-            String id = newCaseId();
-            Punishment punishment = new Punishment(id, uuid,
-                    name == null ? "unknown" : name,
-                    type, staff, reason, System.currentTimeMillis(), expiresAt,
-                    false, "", 0L);
+        synchronized Punishment add(UUID uuid, String name, PunishmentType type, String staff, String reason, long expiresAt) {
+            String id;
+            do { id = UUID.randomUUID().toString().substring(0, 8); }
+            while (caseById(id).isPresent());
+            Punishment punishment = new Punishment(id, uuid, name == null ? "unknown" : name,
+                    type, staff, reason, System.currentTimeMillis(), expiresAt, false, "", 0L);
             records.computeIfAbsent(uuid, ignored -> new ArrayList<>()).add(0, punishment);
             save();
             return punishment;
@@ -502,12 +485,10 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
         synchronized List<Punishment> revoke(UUID uuid, PunishmentType type, String staff) {
             List<Punishment> list = records.get(uuid);
             if (list == null) return List.of();
-
             List<Punishment> revoked = new ArrayList<>();
             for (int i = 0; i < list.size(); i++) {
                 Punishment current = list.get(i);
                 if (current.type() != type || !isActive(current)) continue;
-
                 Punishment replacement = new Punishment(current.id(), current.player(), current.playerName(),
                         current.type(), current.staff(), current.reason(), current.createdAt(), current.expiresAt(),
                         true, staff, System.currentTimeMillis());
@@ -518,15 +499,9 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
             return List.copyOf(revoked);
         }
 
-        Punishment active(UUID uuid, PunishmentType type) {
-            return active(uuid).stream().filter(punishment -> punishment.type() == type).findFirst().orElse(null);
-        }
-
         @Override
         public synchronized List<Punishment> active(UUID uuid) {
-            return records.getOrDefault(uuid, List.of()).stream()
-                    .filter(this::isActive)
-                    .toList();
+            return records.getOrDefault(uuid, List.of()).stream().filter(this::isActive).toList();
         }
 
         @Override
@@ -538,18 +513,21 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
         public synchronized Optional<Punishment> caseById(String id) {
             if (id == null || id.isBlank()) return Optional.empty();
             return records.values().stream().flatMap(Collection::stream)
-                    .filter(punishment -> punishment.id().equalsIgnoreCase(id))
-                    .findFirst();
+                    .filter(punishment -> punishment.id().equalsIgnoreCase(id.trim())).findFirst();
         }
 
-        @Override public synchronized boolean isBanned(UUID player) { return active(player, PunishmentType.BAN) != null; }
-        @Override public synchronized boolean isMuted(UUID player) { return active(player, PunishmentType.MUTE) != null; }
-        @Override public synchronized List<Punishment> history(UUID player) {
-            return List.copyOf(records.getOrDefault(player, List.of()));
+        @Override public synchronized boolean isBanned(UUID player) { return active(player, PunishmentType.BAN).isPresent(); }
+        @Override public synchronized boolean isMuted(UUID player) { return active(player, PunishmentType.MUTE).isPresent(); }
+        @Override public synchronized List<Punishment> history(UUID player) { return List.copyOf(records.getOrDefault(player, List.of())); }
+
+        @Override
+        public synchronized List<Punishment> recent(int limit) {
+            return records.values().stream().flatMap(Collection::stream)
+                    .sorted(Comparator.comparingLong(Punishment::createdAt).reversed())
+                    .limit(Math.max(0, limit)).toList();
         }
-        @Override public synchronized long caseCount() {
-            return records.values().stream().mapToLong(Collection::size).sum();
-        }
+
+        @Override public synchronized long caseCount() { return records.values().stream().mapToLong(Collection::size).sum(); }
 
         synchronized List<Punishment> markNewExpiries() {
             long now = System.currentTimeMillis();
@@ -557,9 +535,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
             for (List<Punishment> list : records.values()) {
                 for (Punishment punishment : list) {
                     if (punishment.revoked() || punishment.expiresAt() <= 0
-                            || punishment.expiresAt() > now || expiryRecorded.contains(punishment.id())) {
-                        continue;
-                    }
+                            || punishment.expiresAt() > now || expiryRecorded.contains(punishment.id())) continue;
                     expiryRecorded.add(punishment.id());
                     expired.add(punishment);
                 }
@@ -569,44 +545,31 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
         }
 
         boolean isActive(Punishment punishment) {
-            return !punishment.revoked()
-                    && (punishment.expiresAt() <= 0 || punishment.expiresAt() > System.currentTimeMillis())
-                    && (punishment.type() == PunishmentType.BAN || punishment.type() == PunishmentType.MUTE);
-        }
-
-        boolean isExpired(Punishment punishment) {
-            return !punishment.revoked() && punishment.expiresAt() > 0
-                    && punishment.expiresAt() <= System.currentTimeMillis();
+            return !punishment.revoked() && (punishment.expiresAt() <= 0 || punishment.expiresAt() > System.currentTimeMillis());
         }
 
         String untilSuffix(Punishment punishment) {
             if (punishment.expiresAt() <= 0) return " (permanent)";
-            long seconds = Math.max(0L, (punishment.expiresAt() - System.currentTimeMillis()) / 1000L);
-            long days = seconds / 86400L;
-            long hours = (seconds % 86400L) / 3600L;
-            long minutes = (seconds % 3600L) / 60L;
-            if (days > 0) return " (" + days + "d " + hours + "h remaining)";
-            if (hours > 0) return " (" + hours + "h " + minutes + "m remaining)";
+            long ms = Math.max(0, punishment.expiresAt() - System.currentTimeMillis());
+            long minutes = Math.max(1L, Duration.ofMillis(ms).toMinutes());
             return " (" + minutes + "m remaining)";
         }
 
         long parseDuration(String input) {
-            if (input == null) return Long.MIN_VALUE;
             if (input.equalsIgnoreCase("perm") || input.equalsIgnoreCase("permanent")) return 0L;
             if (input.length() < 2) return Long.MIN_VALUE;
             try {
                 long amount = Long.parseLong(input.substring(0, input.length() - 1));
                 if (amount <= 0) return Long.MIN_VALUE;
-                Duration duration = switch (Character.toLowerCase(input.charAt(input.length() - 1))) {
-                    case 's' -> Duration.ofSeconds(amount);
-                    case 'm' -> Duration.ofMinutes(amount);
-                    case 'h' -> Duration.ofHours(amount);
-                    case 'd' -> Duration.ofDays(amount);
-                    case 'w' -> Duration.ofDays(Math.multiplyExact(amount, 7L));
-                    default -> null;
+                return switch (Character.toLowerCase(input.charAt(input.length() - 1))) {
+                    case 's' -> Math.multiplyExact(amount, 1000L);
+                    case 'm' -> Math.multiplyExact(amount, 60_000L);
+                    case 'h' -> Math.multiplyExact(amount, 3_600_000L);
+                    case 'd' -> Math.multiplyExact(amount, 86_400_000L);
+                    case 'w' -> Math.multiplyExact(amount, 604_800_000L);
+                    default -> Long.MIN_VALUE;
                 };
-                return duration == null ? Long.MIN_VALUE : duration.toMillis();
-            } catch (RuntimeException exception) {
+            } catch (ArithmeticException | NumberFormatException ex) {
                 return Long.MIN_VALUE;
             }
         }
@@ -628,19 +591,8 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener 
                     data.set(base + "expiry-recorded", expiryRecorded.contains(punishment.id()));
                 }
             }
-            try {
-                data.save(file);
-            } catch (IOException exception) {
-                plugin.getLogger().severe("Could not save punishments.yml: " + exception.getMessage());
-            }
-        }
-
-        private String newCaseId() {
-            for (int attempts = 0; attempts < 20; attempts++) {
-                String candidate = UUID.randomUUID().toString().substring(0, 8);
-                if (caseById(candidate).isEmpty()) return candidate;
-            }
-            return UUID.randomUUID().toString();
+            try { data.save(file); }
+            catch (IOException ex) { plugin.getLogger().severe("Could not save punishments.yml: " + ex.getMessage()); }
         }
     }
 }
