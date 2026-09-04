@@ -1,0 +1,9 @@
+history:
+  page-size: 8
+
+expiry:
+  scan-seconds: 30
+  emit-events: true
+
+messages:
+  prefix: '&5&lMira &8>> &r'
