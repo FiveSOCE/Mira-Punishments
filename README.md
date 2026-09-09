@@ -1,12 +1,14 @@
 # MiraPunishments
 
-MiraPunishments is the moderation punishment and case-history system for the Mira Paper server suite. It provides persistent bans, mutes, warnings, kicks, staff notes, temporary durations and auditable moderation records.
-
 ## Download
 
-[**Download MiraPunishments v0.1.1**](https://github.com/FiveSOCE/Mira-Punishments/releases/download/v0.1.2/MiraPunishments-0.1.2.jar)
+**Latest compatibility release: v0.1.2**
 
-[View All Releases](https://github.com/FiveSOCE/Mira-Punishments/releases)
+[**Download MiraPunishments-0.1.2.jar**](https://github.com/FiveSOCE/Mira-Punishments/releases/download/v0.1.2/MiraPunishments-0.1.2.jar)
+
+[View all releases](https://github.com/FiveSOCE/Mira-Punishments/releases)
+
+MiraPunishments is the moderation punishment and case-history system for the Mira Paper server suite. It provides persistent bans, mutes, warnings, kicks, staff notes, temporary durations and auditable moderation records.
 
 ## Requirements / Dependencies
 
