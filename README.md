@@ -4,7 +4,7 @@ MiraPunishments is the moderation punishment and case-history system for the Mir
 
 ## Download
 
-[**Download MiraPunishments v0.1.1**](https://github.com/FiveSOCE/Mira-Punishments/releases/download/v0.1.1/MiraPunishments-0.1.1.jar)
+[**Download MiraPunishments v0.1.1**](https://github.com/FiveSOCE/Mira-Punishments/releases/download/v0.1.2/MiraPunishments-0.1.2.jar)
 
 [View All Releases](https://github.com/FiveSOCE/Mira-Punishments/releases)
 
