@@ -58,7 +58,7 @@ public final class MiraPunishmentsPlugin extends JavaPlugin implements Listener,
         long expiryTicks = Math.max(5L, getConfig().getLong("expiry.scan-seconds", 30L)) * 20L;
         Bukkit.getScheduler().runTaskTimer(this, this::scanExpiries, 20L, expiryTicks);
 
-        getLogger().info("MiraPunishments v" + getPluginMeta().getVersion()
+        getLogger().info("MiraPunishments v" + getDescription().getVersion()
                 + " enabled with " + service.caseCount() + " historical case(s).");
     }
 
