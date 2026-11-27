@@ -48,4 +48,4 @@ tasks.withType<JavaCompile>().configureEach {
     options.release.set(bytecodeJavaVersion.get())
 }
 
-tasks.jar { archiveFileName.set("MiraPunishments-${project.version}.jar") }
+tasks.jar { archiveFileName.set("MiraPunishments_1.18.2.jar") }
