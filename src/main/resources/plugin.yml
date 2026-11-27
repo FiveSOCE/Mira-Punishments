@@ -1,7 +1,7 @@
 name: MiraPunishments
 version: 0.1.2
 main: gg.mira.punishments.MiraPunishmentsPlugin
-api-version: '1.21'
+api-version: '1.18'
 author: FiveSOCE
 description: Persistent moderation punishments, case history and MiraCore audit integration.
 depend: [MiraCore]
